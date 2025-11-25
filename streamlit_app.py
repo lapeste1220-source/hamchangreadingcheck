@@ -14,62 +14,88 @@ st.title("함창고 박호종 선생님과 함께하는 글의 타당성 검사"
 st.caption("고2 비판적 독해 수업용 · 생성형 AI를 활용한 주장–근거 타당성 점검 도구")
 
 TODAY_STR = datetime.date.today().isoformat()
-DEFAULT_MODEL = "gpt-4.1-mini"  # 필요 시 다른 모델명으로 교체 가능
+
+# 가성비 모델 강제
+DEFAULT_MODEL = "gpt-4o-mini"
+
+# 교사용 비밀번호 (선생님이 코드에서 언제든 변경 가능)
+ADMIN_PASSWORD = "hamchang123"
+
+# 세션당 최대 API 호출 횟수
+MAX_CALLS = 3
 
 
-# ---------------- OpenAI 클라이언트 관련 함수 ----------------
+# ---------------- OpenAI 관련 함수 ----------------
 def get_api_key(user_input_key: str | None) -> str:
     """
-    1순위: 학생이 입력한 API 키
-    2순위: 환경변수 OPENAI_API_KEY
-    3순위: st.secrets["OPENAI_API_KEY"]
-    중 하나를 찾아서 반환. 없으면 에러 발생.
+    API 키 선택 규칙
+    1순위: 학생이 입력한 API 키 (user_input_key)
+    2순위: 교사용 비밀번호를 맞춘 세션일 때, 서버에 저장된 OPENAI_API_KEY
+    둘 다 없으면 에러 발생.
     """
+    # 1) 학생 개인 키가 있는 경우 → 그 키 사용
     if user_input_key and user_input_key.strip():
         return user_input_key.strip()
 
-    env_key = os.getenv("OPENAI_API_KEY")
-    if env_key:
-        return env_key
+    # 2) 학생 키는 없지만, 교사용 비밀번호를 맞춘 세션인 경우 → 선생님 키 사용
+    if st.session_state.get("is_admin", False):
+        env_key = os.getenv("OPENAI_API_KEY")
+        if not env_key:
+            try:
+                env_key = st.secrets.get("OPENAI_API_KEY", None)
+            except Exception:
+                env_key = None
 
-    try:
-        secrets_key = st.secrets.get("OPENAI_API_KEY", None)
-    except Exception:
-        secrets_key = None
+        if env_key:
+            return env_key
+        else:
+            raise ValueError(
+                "교사용 비밀번호는 맞았지만, 서버에 OPENAI_API_KEY 시크릿이 설정되어 있지 않습니다."
+            )
 
-    if secrets_key:
-        return secrets_key
-
-    raise ValueError("OpenAI API 키가 설정되어 있지 않습니다.")
+    # 3) 둘 다 아니면 → 사용 불가
+    raise ValueError(
+        "OpenAI API 키가 필요합니다.\n"
+        "- 학생: 개인 OpenAI API 키를 입력하세요.\n"
+        "- 교사: 교사용 비밀번호를 입력해 학교 공용 키를 사용하세요."
+    )
 
 
 def call_openai_text(model: str, instructions: str, user_input: str, api_key: str) -> str:
     """
-    OpenAI Responses API를 사용해 텍스트를 한 덩어리로 반환.
+    OpenAI Chat Completions API를 사용해 텍스트를 반환.
     """
     client = OpenAI(api_key=api_key)
 
     try:
-        resp = client.responses.create(
+        resp = client.chat.completions.create(
             model=model,
-            input=user_input,
-            instructions=instructions,
+            messages=[
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": user_input},
+            ],
         )
     except Exception as e:
-        raise RuntimeError(f"OpenAI 호출 중 오류: {e}")
+        raise RuntimeError(f"OpenAI 호출 중 오류가 발생했습니다: {e}")
 
-    # output에서 text만 모아서 반환
-    texts = []
     try:
-        for item in resp.output:
-            for content in item.content:
-                if getattr(content, "type", None) == "output_text":
-                    texts.append(content.text)
+        return resp.choices[0].message.content.strip()
     except Exception:
-        # 혹시 구조가 달라져도 최소한 repr이라도 보여주기
-        texts.append(str(resp))
+        return str(resp)
 
-    return "\n".join(texts).strip()
+
+def can_call_api() -> bool:
+    """남은 호출 가능 횟수가 있는지 확인하고, 없으면 경고를 띄운다."""
+    used = st.session_state.get("usage_count", 0)
+    if used >= MAX_CALLS:
+        st.warning(f"이 세션에서 사용할 수 있는 최대 호출 횟수({MAX_CALLS}회)를 초과했습니다.")
+        return False
+    return True
+
+
+def increase_api_count():
+    """API 호출 횟수 1회 증가."""
+    st.session_state["usage_count"] = st.session_state.get("usage_count", 0) + 1
 
 
 # ---------------- 타당성 평가용 시스템 프롬프트 ----------------
@@ -182,7 +208,7 @@ ANALYSIS_INSTRUCTIONS = f"""
 """
 
 
-# ---------------- 예시 지문(기본 값) ----------------
+# ---------------- 기본 예시 지문 ----------------
 DEFAULT_PASSAGE = """가계, 기업, 정부는 경제 주체로서 가계는 소비, 기업은 생산, 정부는 정책 결정 시 합리적인 선택을 하기 위해 노력한다. 이때 합리적인 선택을 하려면 편익과 비용을 충분히 고려하여 편익에서 비용을 뺀 순편익이 가장 큰 대안을 선택해야 한다. 편익이란 어떤 선택을 할 때 얻는 이득으로, 기업의 판매 수입과 같은 금전적인 것이나 소비자가 상품을 소비함으로써 얻는 정신적 만족감과 같은 비금전적인 것을 말한다. 비용이란 암묵적 비용 중 가장 큰 것과 명시적 비용을 합친 것이다. 암묵적 비용은 어떤 선택으로 인해 포기한 다른 대안의 가치를, 명시적 비용은 그 선택을 할 때 화폐로 직접 지불하는 비용을 말한다.
 순편익은 한계편익과 한계비용이 같을 때 가장 커지는데, 한계편익은 어떤 선택에 의해 추가로 발생하는 편익이며 한계비용은 그 선택에 의해 추가로 발생하는 비용이다. 예를 들어, 볼펜을 1개 더 살지 고민하고 있는 소비자의 한계편익은 볼펜을 1개 더 사는 데에서 추가로 얻는 만족감이며, 한계비용은 볼펜을 1개 더 사기 위해 추가로 드는 비용이다.
 [A]
@@ -202,8 +228,14 @@ if "analysis_result" not in st.session_state:
 if "final_report" not in st.session_state:
     st.session_state["final_report"] = ""
 
+if "usage_count" not in st.session_state:
+    st.session_state["usage_count"] = 0
 
-# ---------------- 사이드바: 사용 안내 ----------------
+if "is_admin" not in st.session_state:
+    st.session_state["is_admin"] = False
+
+
+# ---------------- 사이드바: 사용 안내 + 교사용 설정 ----------------
 with st.sidebar:
     st.header("사용 안내")
     st.markdown(
@@ -214,16 +246,39 @@ with st.sidebar:
 2. **분석할 글(지문)**을 붙여넣습니다.
 3. **타당성 조사 포인트**(보고 싶은 부분)를 선택합니다.
 4. (선택) 자신의 **OpenAI API 키**를 입력하거나,  
-   선생님이 미리 설정한 키를 사용합니다.
+   교사용 비밀번호를 입력해 학교 공용 키를 사용할 수 있습니다.
 5. **[1단계: 타당성 분석 실행]** 버튼을 누릅니다.
 6. 결과를 읽고, 자신의 **활동 결과/느낀 점**을 입력합니다.
 7. **[2단계: 완성된 글 생성]** 버튼으로 한 편의 보고서를 만듭니다.
 8. 아래 버튼을 눌러 **텍스트 파일로 다운로드** 후 출력합니다.
         """
     )
+
     st.markdown("---")
-    st.markdown("**API 키 설정**")
-    st.caption("없어도 선생님 서버에 키가 설정되어 있다면 그대로 이용 가능합니다.")
+    st.markdown("**현재 세션 사용량**")
+    st.write(f"API 호출 사용 횟수: {st.session_state['usage_count']} / {MAX_CALLS}")
+
+    st.markdown("---")
+    st.subheader("교사용 설정")
+
+    admin_pw = st.text_input(
+        "교사용 비밀번호 (입력 시 학교 공용 키 사용 가능)",
+        type="password"
+    )
+
+    if admin_pw == ADMIN_PASSWORD:
+        st.session_state["is_admin"] = True
+        st.caption("✅ 교사용 비밀번호가 확인되었습니다. 이 세션에서는 학교 공용 API 키를 사용할 수 있습니다.")
+    elif admin_pw:
+        st.session_state["is_admin"] = False
+        st.caption("❌ 비밀번호가 올바르지 않습니다. (학생은 개인 API 키를 사용하세요.)")
+
+    st.markdown("---")
+    st.markdown("**API 키 안내**")
+    st.caption(
+        "학생: 개인 OpenAI API 키가 있으면 입력란에 넣어 사용하세요.\n"
+        "교사: 교사용 비밀번호를 입력하면 서버에 저장된 학교 공용 키를 사용할 수 있습니다."
+    )
 
 
 # ---------------- 메인 입력 영역 ----------------
@@ -271,9 +326,9 @@ with col_left:
 with col_right:
     st.subheader("2. OpenAI API 설정")
     user_api_key_input = st.text_input(
-        "OpenAI API 키 (선택, 없으면 서버 기본 키 사용)",
+        "OpenAI API 키 (선택, 없으면 교사용 비밀번호로 공용 키 사용)",
         type="password",
-        help="원하면 각자 자신의 OpenAI API 키를 넣어 사용할 수 있습니다."
+        help="학생: 개인 키 입력 / 교사: 비밀번호 입력 후 공용 키 사용"
     )
 
     st.markdown("---")
@@ -293,13 +348,15 @@ if st.button("🧪 1단계: 타당성 분석 실행", type="primary"):
     if not passage_text.strip():
         st.error("지문(분석할 글)을 먼저 입력해 주세요.")
     else:
+        if not can_call_api():
+            st.stop()
+
         try:
             api_key = get_api_key(user_api_key_input)
         except ValueError as e:
             st.error(str(e))
         else:
             with st.spinner("타당성 분석을 수행하고 있습니다. 잠시만 기다려 주세요..."):
-                # 학생이 선택한 포인트를 문자열로 정리
                 points_text = ", ".join(selected_points) if selected_points else "학생이 별도 포인트를 선택하지 않음"
                 if extra_point.strip():
                     points_text += f"; 추가 포인트: {extra_point.strip()}"
@@ -323,6 +380,7 @@ if st.button("🧪 1단계: 타당성 분석 실행", type="primary"):
                         api_key=api_key,
                     )
                     st.session_state["analysis_result"] = analysis_result
+                    increase_api_count()
                 except RuntimeError as e:
                     st.error(str(e))
 
@@ -373,6 +431,9 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
     if not st.session_state["analysis_result"]:
         st.error("먼저 1단계 타당성 분석을 실행해 주세요.")
     else:
+        if not can_call_api():
+            st.stop()
+
         try:
             api_key = get_api_key(user_api_key_input)
         except ValueError as e:
@@ -400,6 +461,7 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
                         api_key=api_key,
                     )
                     st.session_state["final_report"] = final_report
+                    increase_api_count()
                 except RuntimeError as e:
                     st.error(str(e))
 

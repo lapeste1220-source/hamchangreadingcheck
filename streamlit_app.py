@@ -24,20 +24,20 @@ DEFAULT_MODEL = "gpt-4o-mini"
 ADMIN_PASSWORD = "hamchang123"
 
 # 세션당 최대 API 호출 횟수
-MAX_CALLS = 2
+MAX_CALLS = 3
 
 # 학번 사용 기록 파일 (이미 제출한 학번 관리용)
 USED_IDS_FILE = Path("used_ids.txt")
 
+# 반별 최대 번호 (2학년 1~4반)
+CLASS_MAX = {1: 23, 2: 24, 3: 22, 4: 22}  # 2-1,2-2,2-3,2-4
+
 
 # ---------------- 학번 관련 유틸 ----------------
-CLASS_MAX = {1: 23, 2: 24, 3: 22, 4: 22}  # 2-1,2-2,2-3,2-4 최대 번호
-
-
 def build_student_code(class_no: int, number: int) -> str:
     """
     2학년 / 반 / 번호를 받아서 '2111' 형식의 학번 코드 생성
-    예: 2학년 1반 11번 -> 2111
+    예: 2학년 1반 11번 -> 2111 (2 + 1 + 11)
     """
     return f"2{class_no}{number:02d}"
 
@@ -240,22 +240,24 @@ if "include_verification" not in st.session_state:
 if "include_scores" not in st.session_state:
     st.session_state["include_scores"] = True
 
+if "activity_notes" not in st.session_state:
+    st.session_state["activity_notes"] = ""
+
 
 # ---------------- 사이드바: 사용 안내 + 교사용 설정 ----------------
 with st.sidebar:
     st.header("사용 안내")
     st.markdown(
         """
-**사용 순서**
+**전체 진행 순서**
 
-1. 2학년 반·번호를 선택하면 학번 코드가 자동으로 생성됩니다.
-2. 이름, 선정 동기, 지문을 입력합니다.
-3. 일반적인 타당성 검사 포인트를 선택합니다.
-4. (선택) 개인 OpenAI API 키 또는 교사용 비밀번호를 입력합니다.
-5. **[3. 1단계: 생성형 AI를 활용한 타당성 분석]** 버튼을 눌러 분석 결과를 확인합니다.
-6. 분석 결과 중에서 완성 글에 반영할 항목을 체크박스로 선택합니다.
-7. 활동 결과·느낀 점을 적고, **[2단계: 완성된 글 생성]** 버튼을 누릅니다.
-8. 완성된 글을 다운로드(.txt)하여 제출합니다.
+1. **기본 정보 및 학생 입력 영역**에서 반·번호·이름·지문 등을 입력합니다.
+2. **OpenAI API 설정**에서 개인 키(선택) 또는 교사용 비밀번호를 입력합니다.
+3. **3. 1단계: 생성형 AI를 활용한 타당성 분석** 버튼을 눌러 분석 결과를 확인합니다.
+4. **4. 2단계: 나의 생각과 느낀점 메모**에 자신의 생각을 정리해서 적습니다.
+5. 분석 결과 중 최종 글에 반영할 항목을 체크박스로 선택합니다.
+6. **5. 3단계: 이전 단계의 내용을 반영한 완성 글 생성** 버튼을 눌러 보고서를 만듭니다.
+7. 완성된 글을 다운로드(.txt)하여 제출합니다.
         """
     )
 
@@ -276,7 +278,8 @@ with st.sidebar:
         st.caption("✅ 교사용 비밀번호가 확인되었습니다. 이 세션에서는 학교 공용 API 키를 사용할 수 있습니다.")
     elif admin_pw:
         st.session_state["is_admin"] = False
-        st.caption("❌ 비밀번호가 올바르지 않습니다. (학생은 개인 API 키를 사용하세요.)")
+        if admin_pw:  # 뭔가 입력했는데 틀린 경우만 메시지
+            st.caption("❌ 비밀번호가 올바르지 않습니다. (학생은 개인 API 키를 사용하세요.)")
 
     st.markdown("---")
     st.markdown("**API 키 안내**")
@@ -286,77 +289,70 @@ with st.sidebar:
     )
 
 
-# ---------------- 메인 입력 영역 ----------------
-col_left, col_right = st.columns([2, 1])
+# ---------------- 1. 기본 정보 및 학생 입력 영역 ----------------
+st.markdown("---")
+st.subheader("1. 기본 정보 및 학생 입력 영역")
 
-with col_left:
-    st.subheader("1. 기본 정보 및 학생 입력 영역")
+class_no = st.selectbox("반을 선택하세요. (2학년)", options=[1, 2, 3, 4], format_func=lambda x: f"2학년 {x}반")
+max_number = CLASS_MAX[class_no]
+number = st.selectbox("번호를 선택하세요.", options=list(range(1, max_number + 1)))
+student_code = build_student_code(class_no, number)
 
-    class_no = st.selectbox("반을 선택하세요. (2학년)", options=[1, 2, 3, 4], format_func=lambda x: f"2학년 {x}반")
-    max_number = CLASS_MAX[class_no]
-    number = st.selectbox("번호를 선택하세요.", options=list(range(1, max_number + 1)))
-    student_code = build_student_code(class_no, number)
+st.markdown(f"**자동 생성 학번 코드:** `{student_code}` (예: 2학년 {class_no}반 {number}번)")
 
-    st.markdown(f"**자동 생성 학번 코드:** `{student_code}`")
+student_name = st.text_input("이름을 입력하세요.", placeholder="예) 홍길동")
 
-    student_name = st.text_input("이름을 입력하세요.", placeholder="예) 홍길동")
+selected_motivation = st.text_area(
+    "① 이 글(또는 책/자료)을 선택한 이유(선정 동기)를 적어 보세요.",
+    height=80,
+    placeholder="예) 경제에서 '합리적 선택'이 실제 기업 행동과 연결되는 방식이 궁금해서 선택했다."
+)
 
-    selected_motivation = st.text_area(
-        "① 이 글(또는 책/자료)을 선택한 이유(선정 동기)를 적어 보세요.",
-        height=80,
-        placeholder="예) 경제에서 '합리적 선택'이 실제 기업 행동과 연결되는 방식이 궁금해서 선택했다."
-    )
+passage_text = st.text_area(
+    "② 타당성을 평가하고 싶은 글(지문)을 붙여 넣으세요.",
+    value="",
+    height=260,
+    placeholder="분석하고 싶은 글(지문)을 여기에 붙여 넣으세요."
+)
 
-    passage_text = st.text_area(
-        "② 타당성을 평가하고 싶은 글(지문)을 붙여 넣으세요.",
-        value="",
-        height=260,
-        placeholder="분석하고 싶은 글(지문)을 여기에 붙여 넣으세요."
-    )
+st.markdown("**③ 일반적인 타당성 검사 포인트 (복수 선택 가능)**")
 
-    st.markdown("**③ 일반적인 타당성 검사 포인트 (복수 선택 가능)**")
-
-    validity_options = [
+validity_options = [
+    "주장에 맞는 근거가 제시되어 있는가?",
+    "근거의 양이 충분한가?",
+    "근거의 질이 충분한가?",
+    "근거의 출처가 명확한가?",
+    "근거의 출처 제시 이후 반박이 없는가?",
+    "해당 근거가 사실상 유일한 근거로서의 힘이 있는가?",
+    "기타(학생이 따로 적을 부분)"
+]
+selected_points = st.multiselect(
+    "타당성 조사 포인트 선택",
+    options=validity_options,
+    default=[
         "주장에 맞는 근거가 제시되어 있는가?",
-        "근거의 양이 충분한가?",
-        "근거의 질이 충분한가?",
         "근거의 출처가 명확한가?",
-        "근거의 출처가 제시된 이후 반론이나 반박 사례가 없는가?",
-        "해당 근거가 사실상 유일한 근거로서의 힘이 있는가?",
-        "기타(학생이 따로 적을 부분)"
     ]
-    selected_points = st.multiselect(
-        "타당성 조사 포인트 선택",
-        options=validity_options,
-        default=[
-            "주장에 맞는 근거가 제시되어 있는가?",
-            "근거의 출처가 명확한가?",
-        ]
-    )
+)
 
-    extra_point = st.text_input(
-        "④ 위에 없는 다른 조사 포인트가 있다면 적어 주세요 (선택).",
-        placeholder="예) 교과서에서 배운 내용과 다른 부분이 있는지 등"
-    )
-
-with col_right:
-    st.subheader("2. OpenAI API 설정")
-    user_api_key_input = st.text_input(
-        "OpenAI API 키 (선택, 없으면 교사용 비밀번호로 공용 키 사용)",
-        type="password",
-        help="학생: 개인 키 입력 / 교사: 비밀번호 입력 후 공용 키 사용"
-    )
-
-    st.markdown("---")
-    st.subheader("4. 활동 결과 메모 (2단계에서 활용)")
-    activity_notes = st.text_area(
-        "타당성 분석 결과를 읽고, 스스로 정리한 활동 결과·느낀 점을 간단히 적어 보세요.",
-        height=160,
-        placeholder="예) A 주장에 비해 B 주장은 근거가 약하다는 느낌을 받았고, 앞으로 경제 기사를 읽을 때도 근거의 출처를 더 꼼꼼히 보아야겠다고 생각했다."
-    )
+extra_point = st.text_input(
+    "④ 위에 없는 다른 조사 포인트가 있다면 적어 주세요 (선택).",
+    placeholder="예) 교과서에서 배운 내용과 다른 부분이 있는지 등"
+)
 
 
-# ---------------- 1단계: 타당성 분석 실행 ----------------
+# ---------------- 2. OpenAI API 설정 ----------------
+st.markdown("---")
+st.subheader("2. OpenAI API 설정")
+
+user_api_key_input = st.text_input(
+    "OpenAI API 키 (선택, 없으면 교사용 비밀번호로 공용 키 사용)",
+    type="password",
+    help="학생: 개인 키 입력 / 교사: 비밀번호 입력 후 공용 키 사용"
+)
+
+
+# ---------------- 3. 1단계: 생성형 AI를 활용한 타당성 분석 ----------------
 st.markdown("---")
 st.subheader("3. 1단계: 생성형 AI를 활용한 타당성 분석")
 
@@ -406,14 +402,14 @@ if st.button("🧪 1단계: 타당성 분석 실행", type="primary"):
                     st.error(str(e))
 
 
-# ---------------- 분석 결과 표시 + 체크박스(어떤 내용을 최종 글에 반영할지) ----------------
+# ---------------- 분석 결과 표시 + 체크박스 선택 ----------------
 if st.session_state["analysis_result"]:
     st.success("1단계 타당성 분석이 완료되었습니다.")
     st.markdown("### 🔍 AI 기반 타당성 분석 결과")
     st.markdown(st.session_state["analysis_result"])
 
     st.markdown("---")
-    st.subheader("5. 완성된 글에 어떤 내용을 반영할까요? (체크박스 선택)")
+    st.subheader("선택 옵션: 완성된 글에 어떤 내용이 자세히 반영될까요?")
 
     col_c1, col_c2, col_c3 = st.columns(3)
     with col_c1:
@@ -436,11 +432,9 @@ if st.session_state["analysis_result"]:
     st.session_state["include_verification"] = include_verification
     st.session_state["include_scores"] = include_scores
 
-    st.markdown(
-        """
-위에서 체크한 항목들만 **완성된 글(보고서)** 안에서 자세히 다뤄집니다.
-(체크 해제된 영역은 간단히 언급되거나 생략될 수 있습니다.)
-        """
+    st.caption(
+        "※ 체크한 항목들만 완성된 글(보고서) 안에서 자세히 다뤄지고, "
+        "체크 해제된 영역은 간단히 언급되거나 생략될 수 있습니다."
     )
 
     st.markdown("#### 🎯 최종 글에 반영하고 싶은 주장·논점 정리")
@@ -452,14 +446,26 @@ if st.session_state["analysis_result"]:
         value=st.session_state.get("selected_for_report", "")
     )
     st.session_state["selected_for_report"] = selected_for_report
-
 else:
     st.info("아직 1단계 분석 결과가 없습니다. 위 버튼으로 먼저 타당성 분석을 실행해 주세요.")
 
 
-# ---------------- 2단계: 완성된 글(보고서) 생성 ----------------
+# ---------------- 4. 2단계: 나의 생각과 느낀점 메모 ----------------
 st.markdown("---")
-st.subheader("6. 2단계: 학생 활동까지 반영한 완성 글 생성")
+st.subheader("4. 2단계: 나의 생각과 느낀점 메모")
+
+activity_notes = st.text_area(
+    "타당성 분석 결과를 읽고, 스스로 정리한 활동 결과·느낀 점을 적어 보세요.",
+    height=180,
+    value=st.session_state.get("activity_notes", ""),
+    placeholder="예) A 주장은 근거가 탄탄했지만, B 주장은 출처가 약하다는 느낌을 받았다. 앞으로는 기사나 글을 읽을 때 근거의 양과 질, 출처를 더 꼼꼼히 보고 싶다."
+)
+st.session_state["activity_notes"] = activity_notes
+
+
+# ---------------- 5. 3단계: 이전 단계의 내용을 반영한 완성 글 생성 ----------------
+st.markdown("---")
+st.subheader("5. 3단계: 이전 단계의 내용을 반영한 완성 글 생성")
 
 FINAL_REPORT_INSTRUCTIONS = f"""
 당신은 '비판적 독해 활동 보고서'를 작성하는 조교입니다.
@@ -508,9 +514,9 @@ FINAL_REPORT_INSTRUCTIONS = f"""
 - {TODAY_STR}
 """
 
-if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
+if st.button("📝 3단계: 완성된 글 생성", type="secondary"):
     if not st.session_state["analysis_result"]:
-        st.error("먼저 1단계 타당성 분석을 실행해 주세요.")
+        st.error("먼저 3번 단계(1단계 타당성 분석)를 실행해 주세요.")
     else:
         # 이미 제출된 학번인지 확인
         if student_code in st.session_state["used_ids"]:
@@ -552,8 +558,8 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
 [학생이 최종 글에 반영하고자 선택한 주장/논점]
 {st.session_state.get('selected_for_report', '')}
 
-[4. 활동 결과 메모(학생 활동 결과/느낀 점)]
-{activity_notes}
+[4. 2단계에서 정리한 나의 생각과 느낀점]
+{st.session_state.get('activity_notes', '')}
 """
                 try:
                     final_report = call_openai_text(
@@ -562,7 +568,7 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
                         user_input=user_input_for_final,
                         api_key=api_key,
                     )
-                    # 아주 길게 나올 경우를 대비해 안전장치(강제 컷, 2300자 선에서 자르기)
+                    # 너무 길게 나올 경우를 대비해 안전장치(강제 컷, 2300자 선에서 자르기)
                     if len(final_report) > 2300:
                         final_report = final_report[:2300] + "\n\n(※ 글자 수 제한으로 내용 일부가 생략되었습니다.)"
 
@@ -579,7 +585,7 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
 
 # ---------------- 완성 글 표시 및 다운로드 ----------------
 if st.session_state["final_report"]:
-    st.success("2단계 완성 글 생성이 완료되었습니다.")
+    st.success("3단계 완성 글 생성이 완료되었습니다.")
     st.markdown("### 📄 완성된 글 (보고서 초안)")
     st.markdown(st.session_state["final_report"])
 
@@ -595,7 +601,7 @@ if st.session_state["final_report"]:
         mime="text/plain",
     )
 else:
-    st.info("아직 완성된 글이 없습니다. 위의 [2단계: 완성된 글 생성] 버튼을 눌러 주세요.")
+    st.info("아직 완성된 글이 없습니다. 위의 [3단계: 완성된 글 생성] 버튼을 눌러 주세요.")
 
 
 # ---------------- 화면 우측 하단 '만든이' 표시 ----------------

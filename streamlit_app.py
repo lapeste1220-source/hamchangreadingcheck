@@ -24,7 +24,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 ADMIN_PASSWORD = "hamchang123"
 
 # 세션당 최대 API 호출 횟수
-MAX_CALLS = 3
+MAX_CALLS = 2
 
 # 학번 사용 기록 파일 (이미 제출한 학번 관리용)
 USED_IDS_FILE = Path("used_ids.txt")
@@ -130,7 +130,6 @@ def increase_api_count():
 
 
 # ---------------- 타당성 평가용 시스템 프롬프트 ----------------
-# (이전 버전 구조를 살려서: ① 타당성 필요한 부분 ② 검사·검증 결과 ③ 타당성 평가(점수) 가 분명하게 나오도록 설계)
 ANALYSIS_INSTRUCTIONS = f"""
 당신은 고등학교 2학년 학생을 돕는 '비판적 독해·타당성 평가 도우미'입니다.
 아래 규칙과 출력 형식을 반드시 따르십시오.
@@ -253,7 +252,7 @@ with st.sidebar:
 2. 이름, 선정 동기, 지문을 입력합니다.
 3. 일반적인 타당성 검사 포인트를 선택합니다.
 4. (선택) 개인 OpenAI API 키 또는 교사용 비밀번호를 입력합니다.
-5. **[1단계: 타당성 분석 실행]** 버튼을 눌러 분석 결과를 확인합니다.
+5. **[3. 1단계: 생성형 AI를 활용한 타당성 분석]** 버튼을 눌러 분석 결과를 확인합니다.
 6. 분석 결과 중에서 완성 글에 반영할 항목을 체크박스로 선택합니다.
 7. 활동 결과·느낀 점을 적고, **[2단계: 완성된 글 생성]** 버튼을 누릅니다.
 8. 완성된 글을 다운로드(.txt)하여 제출합니다.
@@ -349,7 +348,7 @@ with col_right:
     )
 
     st.markdown("---")
-    st.subheader("3. 활동 결과 메모 (2단계에서 활용)")
+    st.subheader("4. 활동 결과 메모 (2단계에서 활용)")
     activity_notes = st.text_area(
         "타당성 분석 결과를 읽고, 스스로 정리한 활동 결과·느낀 점을 간단히 적어 보세요.",
         height=160,
@@ -359,7 +358,7 @@ with col_right:
 
 # ---------------- 1단계: 타당성 분석 실행 ----------------
 st.markdown("---")
-st.subheader("4. 1단계: 생성형 AI를 활용한 타당성 분석")
+st.subheader("3. 1단계: 생성형 AI를 활용한 타당성 분석")
 
 if st.button("🧪 1단계: 타당성 분석 실행", type="primary"):
     if not passage_text.strip():
@@ -553,7 +552,7 @@ if st.button("📝 2단계: 완성된 글 생성", type="secondary"):
 [학생이 최종 글에 반영하고자 선택한 주장/논점]
 {st.session_state.get('selected_for_report', '')}
 
-[학생 활동 결과/느낀 점]
+[4. 활동 결과 메모(학생 활동 결과/느낀 점)]
 {activity_notes}
 """
                 try:

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 import os
 import datetime
 from pathlib import Path
@@ -27,7 +27,7 @@ ADMIN_PASSWORD = "hamchang123"
 # 세션당 최대 API 호출 횟수
 MAX_CALLS = 3
 
-# 학번 사용 기록 파일 (이미 제출한 학번 관리용)
+# 학번 사용 기록 파일 (이미 제출된 학번 관리용)
 USED_IDS_FILE = Path("used_ids.txt")
 
 # 반별 최대 번호 (2학년 1~4반)
@@ -272,6 +272,10 @@ if "include_scores" not in st.session_state:
 if "activity_notes" not in st.session_state:
     st.session_state["activity_notes"] = ""
 
+# ✅ 새로 추가: 완성 글 생성 요구사항 저장용
+if "final_requirements" not in st.session_state:
+    st.session_state["final_requirements"] = ""
+
 
 # ---------------- 사이드바: 사용 안내 + 교사용 설정 ----------------
 with st.sidebar:
@@ -499,6 +503,15 @@ st.session_state["activity_notes"] = activity_notes
 st.markdown("---")
 st.subheader("5. 3단계: 이전 단계의 내용을 반영한 완성 글 생성")
 
+# ✅ 새로 추가: 완성 글 생성 시 반영해 주었으면 하는 요구사항 입력칸
+final_requirements = st.text_area(
+    "완성된 글을 만들 때 꼭 반영해 주었으면 하는 요구사항이 있다면 적어 주세요. (선택)",
+    height=100,
+    value=st.session_state.get("final_requirements", ""),
+    placeholder="예) 글 마지막에 '비판적 독해의 중요성'을 한 문단으로 정리해 주세요.\n예) 의대 관련 주장 부분을 조금 더 자세히 써 주세요."
+)
+st.session_state["final_requirements"] = final_requirements
+
 FINAL_REPORT_INSTRUCTIONS = f"""
 당신은 '비판적 독해 활동 보고서'를 작성하는 조교입니다.
 아래 정보를 바탕으로, 고등학교 2학년 학생의 활동 결과를 정리한 글을 써 주세요.
@@ -508,10 +521,11 @@ FINAL_REPORT_INSTRUCTIONS = f"""
 - 2,200자를 넘기지 마십시오.
 - 아래 정보 중,
   - [학생이 최종 글에 반영하고자 선택한 주장/논점],
-  - 그리고 체크박스로 선택된 영역:
+  - 체크박스로 선택된 영역:
     - 타당성 검사가 필요한 부분 포함 여부
     - 검사·검증 결과 포함 여부
     - 타당성 평가(점수) 포함 여부
+  - [완성 글에 대한 추가 요구사항]
   를 중심으로 글을 구성합니다.
 
 # 구성 제안
@@ -533,6 +547,10 @@ FINAL_REPORT_INSTRUCTIONS = f"""
 - include_scores == True 인 경우:
   - '타당성 평가(5점 척도)'를 언급하되, 숫자 자체보다 학생이 점수를 어떻게 해석했는지 중심으로 서술하십시오.
 - False인 항목은 본문에서 생략하거나 간단한 한두 문장 언급에 그치십시오.
+
+# 추가 요구사항 반영
+- [완성 글에 대한 추가 요구사항] 섹션이 주어지면, 가능한 범위에서 글의 구성과 표현에 최대한 반영하십시오.
+- 다만, 전체 흐름(배경 → 분석 → 느낀점)을 해치지 않는 선에서 조정합니다.
 
 # 톤
 - 또렷하고 진지하지만, 고2 학생의 자연스러운 글 느낌 유지
@@ -592,6 +610,9 @@ if st.button("📝 3단계: 완성된 글 생성", type="secondary"):
 
 [4. 2단계에서 정리한 나의 생각과 느낀점]
 {st.session_state.get('activity_notes', '')}
+
+[완성 글에 대한 추가 요구사항]
+{st.session_state.get('final_requirements', '')}
 """
                 try:
                     # 3단계 완성 글 작성은 가성비 모델 사용, temperature 약간 높여 자연스러운 글로

@@ -22,7 +22,7 @@ ANALYSIS_MODEL = "gpt-4o"        # 타당성 분석용 (깊은 논리)
 FINAL_MODEL = "gpt-4o-mini"      # 완성 글 작성용 (가성비)
 
 # 교사용 비밀번호 (선생님이 코드에서 언제든 변경 가능)
-ADMIN_PASSWORD = "hamchang123"
+ADMIN_PASSWORD = "hamcha123"
 
 # 세션당 최대 API 호출 횟수
 MAX_CALLS = 3
